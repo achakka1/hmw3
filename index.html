@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Tic Tac Toe</title>
+  <style>
+    body {
+      font-family: system-ui, sans-serif;
+      text-align: center;
+      background: #f4f5f7;
+      color: #222;
+      margin: 0;
+      padding: 40px 16px;
+    }
+
+    #board {
+      display: grid;
+      grid-template-columns: repeat(3, 90px);
+      gap: 8px;
+      justify-content: center;
+      margin: 24px auto;
+    }
+
+    .cell {
+      width: 90px;
+      height: 90px;
+      background: white;
+      border: 2px solid #ddd;
+      border-radius: 12px;
+      font-size: 40px;
+      color: #222;
+      cursor: pointer;
+    }
+
+    .cell:disabled {
+      cursor: default;
+      opacity: 1;
+    }
+
+    .cell.winner {
+      background: #c5f3d5;
+      border-color: #3a9b60;
+    }
+
+    #restart {
+      padding: 12px 24px;
+      border: none;
+      border-radius: 8px;
+      background: #3455db;
+      color: white;
+      font-size: 16px;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+  <h1>Tic Tac Toe</h1>
+  <p id="status" aria-live="polite">X's turn</p>
+  <div id="board" aria-label="Tic tac toe board"></div>
+  <button id="restart" type="button">Restart</button>
+
+  <script>
+    const boardElement = document.getElementById("board");
+    const statusElement = document.getElementById("status");
+
+    const winningLines = [
+      [0, 1, 2], [3, 4, 5], [6, 7, 8],
+      [0, 3, 6], [1, 4, 7], [2, 5, 8],
+      [0, 4, 8], [2, 4, 6]
+    ];
+
+    let board;
+    let player;
+    let gameOver;
+
+    function play(index) {
+      if (gameOver || board[index]) return;
+
+      board[index] = player;
+
+      const winningLine = winningLines.find(line =>
+        line.every(position => board[position] === player)
+      );
+
+      if (winningLine) {
+        gameOver = true;
+        statusElement.textContent = `${player} wins!`;
+      } else if (board.every(Boolean)) {
+        gameOver = true;
+        statusElement.textContent = "It's a draw!";
+      } else {
+        player = player === "X" ? "O" : "X";
+        statusElement.textContent = `${player}'s turn`;
+      }
+
+      render(winningLine);
+    }
+
+    function render(winningLine = []) {
+      boardElement.replaceChildren();
+
+      board.forEach((mark, index) => {
+        const cell = document.createElement("button");
+        cell.type = "button";
+        cell.className = "cell";
+        cell.textContent = mark;
+        cell.disabled = gameOver || Boolean(mark);
+        cell.setAttribute(
+          "aria-label",
+          `Row ${Math.floor(index / 3) + 1}, column ${
+            index % 3 + 1
+          }: ${mark || "empty"}`
+        );
+
+        if (winningLine.includes(index)) {
+          cell.classList.add("winner");
+        }
+
+        cell.addEventListener("click", () => play(index));
+        boardElement.appendChild(cell);
+      });
+    }
+
+    function restart() {
+      board = Array(9).fill("");
+      player = "X";
+      gameOver = false;
+      statusElement.textContent = "X's turn";
+      render();
+    }
+
+    document.getElementById("restart")
+      .addEventListener("click", restart);
+
+    restart();
+  </script>
+</body>
+</html>
