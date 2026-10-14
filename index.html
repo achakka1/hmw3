@@ -13,6 +13,7 @@
       --winner-bg: #c5f3d5;
       --winner-border: #3a9b60;
       --accent: #3455db;
+      --timer-warning: #b42318;
     }
 
     :root[data-theme="dark"] {
@@ -23,6 +24,7 @@
       --winner-bg: #1f5136;
       --winner-border: #4fc283;
       --accent: #5b78f0;
+      --timer-warning: #ff8a80;
     }
 
     body {
@@ -31,7 +33,7 @@
       background: var(--bg);
       color: var(--text);
       margin: 0;
-      padding: 40px 16px;
+      padding: 60px 16px 40px;
       transition: background 0.2s, color 0.2s;
     }
 
@@ -46,6 +48,17 @@
       color: var(--text);
       font-size: 14px;
       cursor: pointer;
+    }
+
+    #timer {
+      font-size: 24px;
+      font-weight: bold;
+      font-variant-numeric: tabular-nums;
+      margin: 16px 0;
+    }
+
+    #timer.warning {
+      color: var(--timer-warning);
     }
 
     #board {
@@ -89,16 +102,20 @@
   </style>
 </head>
 <body>
-  <button id="theme-toggle" type="button" aria-label="Toggle dark mode">🌙 Dark</button>
+  <button id="theme-toggle" type="button" aria-label="Toggle dark mode">
+    🌙 Dark
+  </button>
 
   <h1>Tic Tac Toe</h1>
   <p id="status" aria-live="polite">X's turn</p>
+  <p id="timer" role="timer">Time left: 2:00</p>
   <div id="board" aria-label="Tic tac toe board"></div>
   <button id="restart" type="button">Restart</button>
 
   <script>
     const boardElement = document.getElementById("board");
     const statusElement = document.getElementById("status");
+    const timerElement = document.getElementById("timer");
 
     const winningLines = [
       [0, 1, 2], [3, 4, 5], [6, 7, 8],
@@ -106,12 +123,52 @@
       [0, 4, 8], [2, 4, 6]
     ];
 
+    const gameDuration = 120;
+
     let board;
     let player;
     let gameOver;
+    let timerInterval;
+    let deadline;
+
+    function stopTimer() {
+      clearInterval(timerInterval);
+      timerInterval = null;
+    }
+
+    function updateTimer() {
+      const secondsLeft = Math.max(
+        0,
+        Math.ceil((deadline - Date.now()) / 1000)
+      );
+
+      const minutes = Math.floor(secondsLeft / 60);
+      const seconds = String(secondsLeft % 60).padStart(2, "0");
+
+      timerElement.textContent = `Time left: ${minutes}:${seconds}`;
+      timerElement.classList.toggle("warning", secondsLeft <= 30);
+
+      if (secondsLeft === 0 && !gameOver) {
+        gameOver = true;
+        stopTimer();
+        statusElement.textContent = "Time's up! Click Restart to play again.";
+        render();
+      }
+    }
+
+    function startTimer() {
+      stopTimer();
+      deadline = Date.now() + gameDuration * 1000;
+      updateTimer();
+      timerInterval = setInterval(updateTimer, 250);
+    }
 
     function play(index) {
       if (gameOver || board[index]) return;
+
+      // Check the deadline before accepting a move.
+      updateTimer();
+      if (gameOver) return;
 
       board[index] = player;
 
@@ -121,9 +178,11 @@
 
       if (winningLine) {
         gameOver = true;
+        stopTimer();
         statusElement.textContent = `${player} wins!`;
       } else if (board.every(Boolean)) {
         gameOver = true;
+        stopTimer();
         statusElement.textContent = "It's a draw!";
       } else {
         player = player === "X" ? "O" : "X";
@@ -164,19 +223,29 @@
       gameOver = false;
       statusElement.textContent = "X's turn";
       render();
+      startTimer();
     }
 
     document.getElementById("restart")
       .addEventListener("click", restart);
 
-    restart();
+    // Keep the timer accurate when returning to the page.
+    document.addEventListener("visibilitychange", () => {
+      if (!document.hidden && !gameOver) {
+        updateTimer();
+      }
+    });
 
-    // ---- Dark mode ----
+    // Dark mode
     const themeToggle = document.getElementById("theme-toggle");
 
     function applyTheme(theme) {
       document.documentElement.dataset.theme = theme;
       themeToggle.textContent = theme === "dark" ? "☀️ Light" : "🌙 Dark";
+      themeToggle.setAttribute(
+        "aria-label",
+        theme === "dark" ? "Switch to light mode" : "Switch to dark mode"
+      );
     }
 
     function getSavedTheme() {
@@ -189,16 +258,24 @@
 
     applyTheme(
       getSavedTheme() ||
-      (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light")
+      (window.matchMedia("(prefers-color-scheme: dark)").matches
+        ? "dark"
+        : "light")
     );
 
     themeToggle.addEventListener("click", () => {
-      const next = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
+      const next = document.documentElement.dataset.theme === "dark"
+        ? "light"
+        : "dark";
+
       applyTheme(next);
+
       try {
         localStorage.setItem("theme", next);
       } catch (e) {}
     });
+
+    restart();
   </script>
 </body>
 </html>
