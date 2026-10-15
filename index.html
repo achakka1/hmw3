@@ -13,6 +13,7 @@
       --winner-bg: #c5f3d5;
       --winner-border: #3a9b60;
       --accent: #3455db;
+      --timer-warning: #b42318;
     }
 
     :root[data-theme="dark"] {
@@ -23,6 +24,7 @@
       --winner-bg: #1f5136;
       --winner-border: #4fc283;
       --accent: #5b78f0;
+      --timer-warning: #ff8a80;
     }
 
     body {
@@ -31,7 +33,7 @@
       background: var(--bg);
       color: var(--text);
       margin: 0;
-      padding: 40px 16px;
+      padding: 60px 16px 40px;
       transition: background 0.2s, color 0.2s;
     }
 
@@ -46,6 +48,17 @@
       color: var(--text);
       font-size: 14px;
       cursor: pointer;
+    }
+
+    #timer {
+      font-size: 24px;
+      font-weight: bold;
+      font-variant-numeric: tabular-nums;
+      margin: 16px 0;
+    }
+
+    #timer.warning {
+      color: var(--timer-warning);
     }
 
     #board {
@@ -107,9 +120,12 @@
   </style>
 </head>
 <body>
-  <button id="theme-toggle" type="button" aria-label="Toggle dark mode">🌙 Dark</button>
+  <button id="theme-toggle" type="button" aria-label="Toggle dark mode">
+    🌙 Dark
+  </button>
 
   <h1>Tic Tac Toe</h1>
+
   <div id="mode-select">
     <label for="difficulty">Opponent:</label>
     <select id="difficulty">
@@ -119,13 +135,16 @@
       <option value="hard">CPU – Hard</option>
     </select>
   </div>
+
   <p id="status" aria-live="polite">X's turn</p>
+  <p id="timer" role="timer">Time left: 2:00</p>
   <div id="board" aria-label="Tic tac toe board"></div>
   <button id="restart" type="button">Restart</button>
 
   <script>
     const boardElement = document.getElementById("board");
     const statusElement = document.getElementById("status");
+    const timerElement = document.getElementById("timer");
     const difficultySelect = document.getElementById("difficulty");
 
     const HUMAN = "X";
@@ -138,10 +157,47 @@
       [0, 4, 8], [2, 4, 6]
     ];
 
+    const gameDuration = 120;
+
     let board;
     let player;
     let gameOver;
+    let timerInterval;
+    let deadline;
     let cpuTimer;
+
+    function stopTimer() {
+      clearInterval(timerInterval);
+      timerInterval = null;
+    }
+
+    function updateTimer() {
+      const secondsLeft = Math.max(
+        0,
+        Math.ceil((deadline - Date.now()) / 1000)
+      );
+
+      const minutes = Math.floor(secondsLeft / 60);
+      const seconds = String(secondsLeft % 60).padStart(2, "0");
+
+      timerElement.textContent = `Time left: ${minutes}:${seconds}`;
+      timerElement.classList.toggle("warning", secondsLeft <= 30);
+
+      if (secondsLeft === 0 && !gameOver) {
+        gameOver = true;
+        stopTimer();
+        clearTimeout(cpuTimer);
+        statusElement.textContent = "Time's up! Click Restart to play again.";
+        render();
+      }
+    }
+
+    function startTimer() {
+      stopTimer();
+      deadline = Date.now() + gameDuration * 1000;
+      updateTimer();
+      timerInterval = setInterval(updateTimer, 250);
+    }
 
     function isCpuGame() {
       return difficultySelect.value !== "pvp";
@@ -170,8 +226,22 @@
       return player === CPU ? "CPU is thinking…" : `Your turn (${HUMAN})`;
     }
 
-    function play(index) {
-      if (gameOver || board[index]) return;
+    function play(index, fromCpu = false) {
+      if (
+        gameOver ||
+        !Number.isInteger(index) ||
+        index < 0 ||
+        index > 8 ||
+        board[index]
+      ) {
+        return;
+      }
+
+      if (isCpuTurn() !== fromCpu) return;
+
+      // Check the deadline before accepting a move.
+      updateTimer();
+      if (gameOver) return;
 
       board[index] = player;
 
@@ -179,11 +249,13 @@
 
       if (winningLine) {
         gameOver = true;
+        stopTimer();
         statusElement.textContent = isCpuGame()
           ? (player === CPU ? "CPU wins!" : "You win!")
           : `${player} wins!`;
       } else if (board.every(Boolean)) {
         gameOver = true;
+        stopTimer();
         statusElement.textContent = "It's a draw!";
       } else {
         player = player === "X" ? "O" : "X";
@@ -193,19 +265,18 @@
       render(winningLine);
 
       if (isCpuTurn()) {
-        cpuTimer = setTimeout(() => play(chooseCpuMove()), CPU_DELAY_MS);
+        cpuTimer = setTimeout(() => {
+          if (isCpuTurn()) play(chooseCpuMove(), true);
+        }, CPU_DELAY_MS);
       }
     }
 
-    // ---- CPU opponent ----
-
-    // Easy: any open square.
+    // Easy: choose any open square.
     function easyMove() {
       return randomItem(emptyCells(board));
     }
 
-    // Medium: take a win, block the player's win, otherwise prefer
-    // the center, then a random open square.
+    // Medium: win, block, prefer the center, or choose randomly.
     function mediumMove() {
       for (const mark of [CPU, HUMAN]) {
         const move = emptyCells(board).find(index => {
@@ -213,13 +284,15 @@
           next[index] = mark;
           return findWinningLine(next, mark);
         });
+
         if (move !== undefined) return move;
       }
+
       if (!board[4]) return 4;
       return easyMove();
     }
 
-    // Hard: full minimax search; the CPU never loses.
+    // Hard: use minimax to find the best move.
     function minimax(cells, turn, depth) {
       if (findWinningLine(cells, CPU)) return 10 - depth;
       if (findWinningLine(cells, HUMAN)) return depth - 10;
@@ -228,7 +301,12 @@
       const scores = emptyCells(cells).map(index => {
         const next = cells.slice();
         next[index] = turn;
-        return minimax(next, turn === CPU ? HUMAN : CPU, depth + 1);
+
+        return minimax(
+          next,
+          turn === CPU ? HUMAN : CPU,
+          depth + 1
+        );
       });
 
       return turn === CPU ? Math.max(...scores) : Math.min(...scores);
@@ -241,7 +319,9 @@
       emptyCells(board).forEach(index => {
         const next = board.slice();
         next[index] = CPU;
+
         const score = minimax(next, HUMAN, 1);
+
         if (score > bestScore) {
           bestScore = score;
           bestMoves = [index];
@@ -255,9 +335,12 @@
 
     function chooseCpuMove() {
       switch (difficultySelect.value) {
-        case "easy": return easyMove();
-        case "hard": return hardMove();
-        default: return mediumMove();
+        case "easy":
+          return easyMove();
+        case "hard":
+          return hardMove();
+        default:
+          return mediumMove();
       }
     }
 
@@ -270,6 +353,7 @@
         cell.className = "cell";
         cell.textContent = mark;
         cell.disabled = gameOver || Boolean(mark) || isCpuTurn();
+
         cell.setAttribute(
           "aria-label",
           `Row ${Math.floor(index / 3) + 1}, column ${
@@ -293,6 +377,7 @@
       gameOver = false;
       statusElement.textContent = turnText();
       render();
+      startTimer();
     }
 
     document.getElementById("restart")
@@ -300,14 +385,24 @@
 
     difficultySelect.addEventListener("change", restart);
 
-    restart();
+    // Keep the timer accurate when returning to the page.
+    document.addEventListener("visibilitychange", () => {
+      if (!document.hidden && !gameOver) {
+        updateTimer();
+      }
+    });
 
-    // ---- Dark mode ----
+    // Dark mode
     const themeToggle = document.getElementById("theme-toggle");
 
     function applyTheme(theme) {
       document.documentElement.dataset.theme = theme;
       themeToggle.textContent = theme === "dark" ? "☀️ Light" : "🌙 Dark";
+
+      themeToggle.setAttribute(
+        "aria-label",
+        theme === "dark" ? "Switch to light mode" : "Switch to dark mode"
+      );
     }
 
     function getSavedTheme() {
@@ -320,16 +415,24 @@
 
     applyTheme(
       getSavedTheme() ||
-      (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light")
+      (window.matchMedia("(prefers-color-scheme: dark)").matches
+        ? "dark"
+        : "light")
     );
 
     themeToggle.addEventListener("click", () => {
-      const next = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
+      const next = document.documentElement.dataset.theme === "dark"
+        ? "light"
+        : "dark";
+
       applyTheme(next);
+
       try {
         localStorage.setItem("theme", next);
       } catch (e) {}
     });
+
+    restart();
   </script>
 </body>
 </html>
