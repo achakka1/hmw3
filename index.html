@@ -77,6 +77,24 @@
       border-color: var(--winner-border);
     }
 
+    #mode-select {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 8px;
+      font-size: 15px;
+    }
+
+    #difficulty {
+      padding: 6px 10px;
+      border: 2px solid var(--cell-border);
+      border-radius: 8px;
+      background: var(--cell-bg);
+      color: var(--text);
+      font-size: 15px;
+      cursor: pointer;
+    }
+
     #restart {
       padding: 12px 24px;
       border: none;
@@ -92,6 +110,15 @@
   <button id="theme-toggle" type="button" aria-label="Toggle dark mode">🌙 Dark</button>
 
   <h1>Tic Tac Toe</h1>
+  <div id="mode-select">
+    <label for="difficulty">Opponent:</label>
+    <select id="difficulty">
+      <option value="pvp">2 Players</option>
+      <option value="easy">CPU – Easy</option>
+      <option value="medium" selected>CPU – Medium</option>
+      <option value="hard">CPU – Hard</option>
+    </select>
+  </div>
   <p id="status" aria-live="polite">X's turn</p>
   <div id="board" aria-label="Tic tac toe board"></div>
   <button id="restart" type="button">Restart</button>
@@ -99,6 +126,11 @@
   <script>
     const boardElement = document.getElementById("board");
     const statusElement = document.getElementById("status");
+    const difficultySelect = document.getElementById("difficulty");
+
+    const HUMAN = "X";
+    const CPU = "O";
+    const CPU_DELAY_MS = 400;
 
     const winningLines = [
       [0, 1, 2], [3, 4, 5], [6, 7, 8],
@@ -109,28 +141,124 @@
     let board;
     let player;
     let gameOver;
+    let cpuTimer;
+
+    function isCpuGame() {
+      return difficultySelect.value !== "pvp";
+    }
+
+    function isCpuTurn() {
+      return isCpuGame() && player === CPU && !gameOver;
+    }
+
+    function findWinningLine(cells, mark) {
+      return winningLines.find(line =>
+        line.every(position => cells[position] === mark)
+      );
+    }
+
+    function emptyCells(cells) {
+      return cells.flatMap((mark, index) => (mark ? [] : [index]));
+    }
+
+    function randomItem(items) {
+      return items[Math.floor(Math.random() * items.length)];
+    }
+
+    function turnText() {
+      if (!isCpuGame()) return `${player}'s turn`;
+      return player === CPU ? "CPU is thinking…" : `Your turn (${HUMAN})`;
+    }
 
     function play(index) {
       if (gameOver || board[index]) return;
 
       board[index] = player;
 
-      const winningLine = winningLines.find(line =>
-        line.every(position => board[position] === player)
-      );
+      const winningLine = findWinningLine(board, player);
 
       if (winningLine) {
         gameOver = true;
-        statusElement.textContent = `${player} wins!`;
+        statusElement.textContent = isCpuGame()
+          ? (player === CPU ? "CPU wins!" : "You win!")
+          : `${player} wins!`;
       } else if (board.every(Boolean)) {
         gameOver = true;
         statusElement.textContent = "It's a draw!";
       } else {
         player = player === "X" ? "O" : "X";
-        statusElement.textContent = `${player}'s turn`;
+        statusElement.textContent = turnText();
       }
 
       render(winningLine);
+
+      if (isCpuTurn()) {
+        cpuTimer = setTimeout(() => play(chooseCpuMove()), CPU_DELAY_MS);
+      }
+    }
+
+    // ---- CPU opponent ----
+
+    // Easy: any open square.
+    function easyMove() {
+      return randomItem(emptyCells(board));
+    }
+
+    // Medium: take a win, block the player's win, otherwise prefer
+    // the center, then a random open square.
+    function mediumMove() {
+      for (const mark of [CPU, HUMAN]) {
+        const move = emptyCells(board).find(index => {
+          const next = board.slice();
+          next[index] = mark;
+          return findWinningLine(next, mark);
+        });
+        if (move !== undefined) return move;
+      }
+      if (!board[4]) return 4;
+      return easyMove();
+    }
+
+    // Hard: full minimax search; the CPU never loses.
+    function minimax(cells, turn, depth) {
+      if (findWinningLine(cells, CPU)) return 10 - depth;
+      if (findWinningLine(cells, HUMAN)) return depth - 10;
+      if (cells.every(Boolean)) return 0;
+
+      const scores = emptyCells(cells).map(index => {
+        const next = cells.slice();
+        next[index] = turn;
+        return minimax(next, turn === CPU ? HUMAN : CPU, depth + 1);
+      });
+
+      return turn === CPU ? Math.max(...scores) : Math.min(...scores);
+    }
+
+    function hardMove() {
+      let bestScore = -Infinity;
+      let bestMoves = [];
+
+      emptyCells(board).forEach(index => {
+        const next = board.slice();
+        next[index] = CPU;
+        const score = minimax(next, HUMAN, 1);
+        if (score > bestScore) {
+          bestScore = score;
+          bestMoves = [index];
+        } else if (score === bestScore) {
+          bestMoves.push(index);
+        }
+      });
+
+      return randomItem(bestMoves);
+    }
+
+    function chooseCpuMove() {
+      switch (difficultySelect.value) {
+        case "easy": return easyMove();
+        case "hard": return hardMove();
+        default: return mediumMove();
+      }
     }
 
     function render(winningLine = []) {
@@ -141,7 +269,7 @@
         cell.type = "button";
         cell.className = "cell";
         cell.textContent = mark;
-        cell.disabled = gameOver || Boolean(mark);
+        cell.disabled = gameOver || Boolean(mark) || isCpuTurn();
         cell.setAttribute(
           "aria-label",
           `Row ${Math.floor(index / 3) + 1}, column ${
@@ -159,15 +287,18 @@
     }
 
     function restart() {
+      clearTimeout(cpuTimer);
       board = Array(9).fill("");
       player = "X";
       gameOver = false;
-      statusElement.textContent = "X's turn";
+      statusElement.textContent = turnText();
       render();
     }
 
     document.getElementById("restart")
       .addEventListener("click", restart);
+
+    difficultySelect.addEventListener("change", restart);
 
     restart();
 
